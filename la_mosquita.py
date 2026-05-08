@@ -66,33 +66,35 @@ class Game:
     def __init__(self, num_players=2):
         self.cube = Cube3D()
         self.num_players = num_players
-        self.current_player = 1
         self.state = GameState.PLAYING
-        self.loser = None
+        self.last_move = None  # Display last movement made
+        self.last_move_timer = 0
         self.show_help = False
         self.help_timer = 0
     
-    def move_fly(self, dx, dy, dz):
+    def move_fly(self, dx, dy, dz, move_name):
         """
-        Process a fly movement for the current player.
+        Process a fly movement.
         Returns True if move was valid, False if player loses.
         """
         if self.cube.move_fly(dx, dy, dz):
-            # Valid move - next player's turn
-            self.current_player = self.current_player % self.num_players + 1
+            # Valid move - display the movement
+            self.last_move = move_name
+            self.last_move_timer = 2000  # Show for 2 seconds
             return True
         else:
-            # Invalid move - current player loses
-            self.loser = self.current_player
+            # Invalid move - player loses
             self.state = GameState.GAME_OVER
+            self.last_move = f"{move_name} - OUT!"
+            self.last_move_timer = 0  # Keep it displayed
             return False
     
     def restart(self):
         """Restart the game."""
         self.cube.reset()
-        self.current_player = 1
         self.state = GameState.PLAYING
-        self.loser = None
+        self.last_move = None
+        self.last_move_timer = 0
     
     def toggle_help(self):
         """Toggle help display."""
@@ -100,7 +102,12 @@ class Game:
         self.help_timer = 3000 if self.show_help else 0
     
     def update(self, dt):
-        """Update game state (handle help timer)."""
+        """Update game state (handle timers)."""
+        if self.last_move_timer > 0:
+            self.last_move_timer -= dt
+            if self.last_move_timer <= 0:
+                self.last_move = None
+        
         if self.show_help and self.help_timer > 0:
             self.help_timer -= dt
             if self.help_timer <= 0:
@@ -144,11 +151,11 @@ class Renderer:
         screen_x, screen_y = self.cube_to_isometric(x, y, z)
         pygame.draw.circle(self.surface, COLOR_FLY, (screen_x, screen_y), 8)
     
-    def draw_ui(self, current_player, fly_pos, num_players):
-        """Draw UI elements: player info, controls, position."""
-        # Current player
-        player_text = self.font_large.render(f"Player {current_player}'s Turn", True, COLOR_TITLE)
-        self.surface.blit(player_text, (20, 20))
+    def draw_ui(self, fly_pos):
+        """Draw UI elements: prompt and controls."""
+        # Prompt
+        prompt_text = self.font_large.render("please move", True, COLOR_TITLE)
+        self.surface.blit(prompt_text, (20, 20))
         
         # Controls
         controls = [
@@ -174,7 +181,18 @@ class Renderer:
         
         self.surface.blit(pos_text, text_rect)
     
-    def draw_game_over(self, loser, num_players):
+    def draw_last_move(self, last_move):
+        """Draw the last move made."""
+        if last_move:
+            # Check if it's an out move
+            is_out = "OUT!" in last_move
+            color = (255, 100, 100) if is_out else COLOR_TITLE
+            
+            move_text = self.font_large.render(last_move, True, color)
+            text_rect = move_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2))
+            self.surface.blit(move_text, text_rect)
+    
+    def draw_game_over(self):
         """Draw game over screen."""
         # Semi-transparent overlay
         overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
@@ -183,7 +201,7 @@ class Renderer:
         self.surface.blit(overlay, (0, 0))
         
         # Game over text
-        loser_text = self.font_large.render(f"Player {loser} Loses!", True, (255, 100, 100))
+        loser_text = self.font_large.render("you are out", True, (255, 100, 100))
         loser_rect = loser_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 - 50))
         self.surface.blit(loser_text, loser_rect)
         
@@ -201,7 +219,10 @@ class Renderer:
         self.draw_fly(game.cube.get_position())
         
         # Draw UI
-        self.draw_ui(game.current_player, game.cube.get_position(), game.num_players)
+        self.draw_ui(game.cube.get_position())
+        
+        # Draw last move (movement or out)
+        self.draw_last_move(game.last_move)
         
         # Draw help if active
         if game.show_help:
@@ -209,7 +230,7 @@ class Renderer:
         
         # Draw game over screen
         if game.state == GameState.GAME_OVER:
-            self.draw_game_over(game.loser, game.num_players)
+            self.draw_game_over()
         
         pygame.display.flip()
 
@@ -235,12 +256,12 @@ def main():
     
     # Key-to-movement mapping
     key_to_move = {
-        pygame.K_q: (0, 1, 0),    # Q = up (y+1)
-        pygame.K_w: (0, 0, 1),    # W = forward (z+1)
-        pygame.K_e: (0, 0, -1),   # E = back (z-1)
-        pygame.K_a: (-1, 0, 0),   # A = left (x-1)
-        pygame.K_s: (0, -1, 0),   # S = down (y-1)
-        pygame.K_d: (1, 0, 0),    # D = right (x+1)
+        pygame.K_q: (0, 1, 0, "up"),
+        pygame.K_w: (0, 0, 1, "forward"),
+        pygame.K_e: (0, 0, -1, "back"),
+        pygame.K_a: (-1, 0, 0, "left"),
+        pygame.K_s: (0, -1, 0, "down"),
+        pygame.K_d: (1, 0, 0, "right"),
     }
     
     running = True
@@ -259,8 +280,8 @@ def main():
                 elif game.state == GameState.PLAYING:
                     # Process movement input
                     if event.key in key_to_move:
-                        dx, dy, dz = key_to_move[event.key]
-                        game.move_fly(dx, dy, dz)
+                        dx, dy, dz, move_name = key_to_move[event.key]
+                        game.move_fly(dx, dy, dz, move_name)
                 elif game.state == GameState.GAME_OVER:
                     # Any key restarts
                     game.restart()
