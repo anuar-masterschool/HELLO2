@@ -71,6 +71,7 @@ class Game:
         self.last_move_timer = 0
         self.show_help = False
         self.help_timer = 0
+        self.out_timer = 0  # Timer for showing "you are out" message
     
     def move_fly(self, dx, dy, dz, move_name):
         """
@@ -83,10 +84,9 @@ class Game:
             self.last_move_timer = 2000  # Show for 2 seconds
             return True
         else:
-            # Invalid move - player loses
-            self.state = GameState.GAME_OVER
+            # Invalid move - player loses, show "out" message temporarily
             self.last_move = f"{move_name} - OUT!"
-            self.last_move_timer = 0  # Keep it displayed
+            self.out_timer = 2000  # Show "you are out" for 2 seconds
             return False
     
     def restart(self):
@@ -95,6 +95,7 @@ class Game:
         self.state = GameState.PLAYING
         self.last_move = None
         self.last_move_timer = 0
+        self.out_timer = 0
     
     def toggle_help(self):
         """Toggle help display."""
@@ -107,6 +108,12 @@ class Game:
             self.last_move_timer -= dt
             if self.last_move_timer <= 0:
                 self.last_move = None
+        
+        if self.out_timer > 0:
+            self.out_timer -= dt
+            if self.out_timer <= 0:
+                # Auto-continue: clear the out message and state
+                self.out_timer = 0
         
         if self.show_help and self.help_timer > 0:
             self.help_timer -= dt
@@ -204,11 +211,6 @@ class Renderer:
         loser_text = self.font_large.render("you are out", True, (255, 100, 100))
         loser_rect = loser_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 - 50))
         self.surface.blit(loser_text, loser_rect)
-        
-        # Restart instruction
-        restart_text = self.font_small.render("Press any key to restart", True, COLOR_TEXT)
-        restart_rect = restart_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 + 50))
-        self.surface.blit(restart_text, restart_rect)
     
     def render(self, game):
         """Main render function."""
@@ -225,13 +227,13 @@ class Renderer:
         # Draw last move (movement or out)
         self.draw_last_move(game.last_move)
         
+        # Draw "you are out" overlay if timer is active
+        if game.out_timer > 0:
+            self.draw_game_over()
+        
         # Draw help if active
         if game.show_help:
             self.draw_help(game.cube.get_position())
-        
-        # Draw game over screen
-        if game.state == GameState.GAME_OVER:
-            self.draw_game_over()
         
         pygame.display.flip()
 
@@ -278,14 +280,10 @@ def main():
                     running = False
                 elif event.key == pygame.K_h:
                     game.toggle_help()
-                elif game.state == GameState.PLAYING:
+                elif event.key in key_to_move:
                     # Process movement input
-                    if event.key in key_to_move:
-                        dx, dy, dz, move_name = key_to_move[event.key]
-                        game.move_fly(dx, dy, dz, move_name)
-                elif game.state == GameState.GAME_OVER:
-                    # Any key restarts
-                    game.restart()
+                    dx, dy, dz, move_name = key_to_move[event.key]
+                    game.move_fly(dx, dy, dz, move_name)
         
         # Update game state
         game.update(dt)
