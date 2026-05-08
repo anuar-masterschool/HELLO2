@@ -1,0 +1,279 @@
+import pygame
+import sys
+from enum import Enum
+
+# ==================== CONSTANTS ====================
+WINDOW_WIDTH = 800
+WINDOW_HEIGHT = 600
+FPS = 30
+
+# Colors
+COLOR_BG = (20, 20, 30)
+COLOR_GRID = (100, 100, 120)
+COLOR_GRID_HIGHLIGHT = (200, 200, 220)
+COLOR_FLY = (255, 50, 50)
+COLOR_TEXT = (200, 200, 200)
+COLOR_TITLE = (100, 200, 255)
+
+# Cube parameters
+CUBE_SIZE = 3
+TILE_SIZE = 40
+CUBE_CENTER_X = WINDOW_WIDTH // 2
+CUBE_CENTER_Y = WINDOW_HEIGHT // 2 - 50
+
+# ==================== CLASSES ====================
+
+class GameState(Enum):
+    PLAYING = 1
+    GAME_OVER = 2
+
+
+class Cube3D:
+    """Manages the 3x3x3 cube state and fly position."""
+    
+    def __init__(self):
+        self.fly_pos = [1, 1, 1]  # Center position: (x, y, z)
+    
+    def move_fly(self, dx, dy, dz):
+        """
+        Attempt to move the fly by (dx, dy, dz).
+        Returns True if move is valid (within bounds), False if out of bounds.
+        """
+        new_x = self.fly_pos[0] + dx
+        new_y = self.fly_pos[1] + dy
+        new_z = self.fly_pos[2] + dz
+        
+        # Check bounds
+        if not (0 <= new_x < CUBE_SIZE and 0 <= new_y < CUBE_SIZE and 0 <= new_z < CUBE_SIZE):
+            return False  # Out of bounds - player loses
+        
+        # Valid move
+        self.fly_pos = [new_x, new_y, new_z]
+        return True
+    
+    def get_position(self):
+        """Return current fly position as tuple."""
+        return tuple(self.fly_pos)
+    
+    def reset(self):
+        """Reset fly to center position."""
+        self.fly_pos = [1, 1, 1]
+
+
+class Game:
+    """Manages game state, turns, and players."""
+    
+    def __init__(self, num_players=2):
+        self.cube = Cube3D()
+        self.num_players = num_players
+        self.current_player = 1
+        self.state = GameState.PLAYING
+        self.loser = None
+        self.show_help = False
+        self.help_timer = 0
+    
+    def move_fly(self, dx, dy, dz):
+        """
+        Process a fly movement for the current player.
+        Returns True if move was valid, False if player loses.
+        """
+        if self.cube.move_fly(dx, dy, dz):
+            # Valid move - next player's turn
+            self.current_player = self.current_player % self.num_players + 1
+            return True
+        else:
+            # Invalid move - current player loses
+            self.loser = self.current_player
+            self.state = GameState.GAME_OVER
+            return False
+    
+    def restart(self):
+        """Restart the game."""
+        self.cube.reset()
+        self.current_player = 1
+        self.state = GameState.PLAYING
+        self.loser = None
+    
+    def toggle_help(self):
+        """Toggle help display."""
+        self.show_help = not self.show_help
+        self.help_timer = 3000 if self.show_help else 0
+    
+    def update(self, dt):
+        """Update game state (handle help timer)."""
+        if self.show_help and self.help_timer > 0:
+            self.help_timer -= dt
+            if self.help_timer <= 0:
+                self.show_help = False
+
+
+class Renderer:
+    """Handles all drawing operations."""
+    
+    def __init__(self, surface, font_small, font_large):
+        self.surface = surface
+        self.font_small = font_small
+        self.font_large = font_large
+    
+    def cube_to_isometric(self, x, y, z):
+        """Convert 3D cube coordinates to 2D isometric screen coordinates."""
+        screen_x = CUBE_CENTER_X + (x - z) * TILE_SIZE // 2
+        screen_y = CUBE_CENTER_Y + (x + z) * TILE_SIZE // 4 - y * TILE_SIZE // 2
+        return (screen_x, screen_y)
+    
+    def draw_grid(self):
+        """Draw the 3x3x3 cube grid."""
+        # Draw grid lines and cube cells
+        for x in range(CUBE_SIZE):
+            for y in range(CUBE_SIZE):
+                for z in range(CUBE_SIZE):
+                    screen_x, screen_y = self.cube_to_isometric(x, y, z)
+                    
+                    # Draw cube cell as a square
+                    rect = pygame.Rect(
+                        screen_x - TILE_SIZE // 2,
+                        screen_y - TILE_SIZE // 4,
+                        TILE_SIZE,
+                        TILE_SIZE // 2
+                    )
+                    pygame.draw.rect(self.surface, COLOR_GRID, rect, 1)
+    
+    def draw_fly(self, fly_pos):
+        """Draw the fly at its current position."""
+        x, y, z = fly_pos
+        screen_x, screen_y = self.cube_to_isometric(x, y, z)
+        pygame.draw.circle(self.surface, COLOR_FLY, (screen_x, screen_y), 8)
+    
+    def draw_ui(self, current_player, fly_pos, num_players):
+        """Draw UI elements: player info, controls, position."""
+        # Current player
+        player_text = self.font_large.render(f"Player {current_player}'s Turn", True, COLOR_TITLE)
+        self.surface.blit(player_text, (20, 20))
+        
+        # Controls
+        controls = [
+            "Q=Up   W=Forward   E=Back",
+            "A=Left   S=Down   D=Right",
+            "H=Position   ESC=Quit"
+        ]
+        for i, control in enumerate(controls):
+            text = self.font_small.render(control, True, COLOR_TEXT)
+            self.surface.blit(text, (20, WINDOW_HEIGHT - 80 + i * 20))
+    
+    def draw_help(self, fly_pos):
+        """Draw help overlay with current fly position."""
+        pos_text = self.font_large.render(f"Position: ({fly_pos[0]}, {fly_pos[1]}, {fly_pos[2]})", True, COLOR_TITLE)
+        text_rect = pos_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2))
+        
+        # Semi-transparent background
+        bg_rect = text_rect.inflate(20, 20)
+        help_surface = pygame.Surface((bg_rect.width, bg_rect.height))
+        help_surface.set_alpha(200)
+        help_surface.fill((50, 50, 70))
+        self.surface.blit(help_surface, bg_rect)
+        
+        self.surface.blit(pos_text, text_rect)
+    
+    def draw_game_over(self, loser, num_players):
+        """Draw game over screen."""
+        # Semi-transparent overlay
+        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
+        overlay.set_alpha(100)
+        overlay.fill((0, 0, 0))
+        self.surface.blit(overlay, (0, 0))
+        
+        # Game over text
+        loser_text = self.font_large.render(f"Player {loser} Loses!", True, (255, 100, 100))
+        loser_rect = loser_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 - 50))
+        self.surface.blit(loser_text, loser_rect)
+        
+        # Restart instruction
+        restart_text = self.font_small.render("Press any key to restart", True, COLOR_TEXT)
+        restart_rect = restart_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 + 50))
+        self.surface.blit(restart_text, restart_rect)
+    
+    def render(self, game):
+        """Main render function."""
+        self.surface.fill(COLOR_BG)
+        
+        # Draw cube grid and fly
+        self.draw_grid()
+        self.draw_fly(game.cube.get_position())
+        
+        # Draw UI
+        self.draw_ui(game.current_player, game.cube.get_position(), game.num_players)
+        
+        # Draw help if active
+        if game.show_help:
+            self.draw_help(game.cube.get_position())
+        
+        # Draw game over screen
+        if game.state == GameState.GAME_OVER:
+            self.draw_game_over(game.loser, game.num_players)
+        
+        pygame.display.flip()
+
+
+# ==================== MAIN GAME LOOP ====================
+
+def main():
+    """Main game loop."""
+    pygame.init()
+    
+    # Setup display
+    screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+    pygame.display.set_caption("La Mosquita - 3x3x3 Cube Game")
+    clock = pygame.time.Clock()
+    
+    # Setup fonts
+    font_small = pygame.font.Font(None, 20)
+    font_large = pygame.font.Font(None, 36)
+    
+    # Initialize game and renderer
+    game = Game(num_players=2)
+    renderer = Renderer(screen, font_small, font_large)
+    
+    # Key-to-movement mapping
+    key_to_move = {
+        pygame.K_q: (0, 1, 0),    # Q = up (y+1)
+        pygame.K_w: (0, 0, 1),    # W = forward (z+1)
+        pygame.K_e: (0, 0, -1),   # E = back (z-1)
+        pygame.K_a: (-1, 0, 0),   # A = left (x-1)
+        pygame.K_s: (0, -1, 0),   # S = down (y-1)
+        pygame.K_d: (1, 0, 0),    # D = right (x+1)
+    }
+    
+    running = True
+    while running:
+        dt = clock.tick(FPS)
+        
+        # Event handling
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                elif event.key == pygame.K_h:
+                    game.toggle_help()
+                elif game.state == GameState.PLAYING:
+                    # Process movement input
+                    if event.key in key_to_move:
+                        dx, dy, dz = key_to_move[event.key]
+                        game.move_fly(dx, dy, dz)
+                elif game.state == GameState.GAME_OVER:
+                    # Any key restarts
+                    game.restart()
+        
+        # Update game state
+        game.update(dt)
+        
+        # Render
+        renderer.render(game)
+    
+    pygame.quit()
+    sys.exit()
+
+
+if __name__ == "__main__":
+    main()
