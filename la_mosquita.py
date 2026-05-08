@@ -214,9 +214,10 @@ class Renderer:
         """Main render function."""
         self.surface.fill(COLOR_BG)
         
-        # Draw cube grid and fly
-        self.draw_grid()
-        self.draw_fly(game.cube.get_position())
+        # Draw cube grid and fly only when help is active
+        if game.show_help:
+            self.draw_grid()
+            self.draw_fly(game.cube.get_position())
         
         # Draw UI
         self.draw_ui(game.cube.get_position())
