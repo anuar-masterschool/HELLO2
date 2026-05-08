@@ -4,7 +4,7 @@ from enum import Enum
 
 # ==================== CONSTANTS ====================
 WINDOW_WIDTH = 800
-WINDOW_HEIGHT = 600
+WINDOW_HEIGHT = 700
 FPS = 30
 
 # Colors
@@ -18,8 +18,9 @@ COLOR_TITLE = (100, 200, 255)
 # Cube parameters
 CUBE_SIZE = 3
 TILE_SIZE = 40
-CUBE_CENTER_X = WINDOW_WIDTH // 2
-CUBE_CENTER_Y = WINDOW_HEIGHT // 2 - 50
+GRID_START_X = 250
+GRID_START_Y = 100
+LAYER_HEIGHT = 160
 
 # ==================== CLASSES ====================
 
@@ -129,34 +130,36 @@ class Renderer:
         self.font_small = font_small
         self.font_large = font_large
     
-    def cube_to_isometric(self, x, y, z):
-        """Convert 3D cube coordinates to 2D isometric screen coordinates."""
-        screen_x = CUBE_CENTER_X + (x - z) * TILE_SIZE // 2
-        screen_y = CUBE_CENTER_Y + (x + z) * TILE_SIZE // 4 - y * TILE_SIZE // 2
-        return (screen_x, screen_y)
+    def cube_to_screen(self, x, y, z):
+        """Convert 3D cube coordinates to 2D screen coordinates (layered grid view)."""
+        # Each layer is positioned vertically
+        # y is the height (0=bottom, 1=middle, 2=top)
+        grid_x = GRID_START_X + x * TILE_SIZE
+        grid_y = GRID_START_Y + y * LAYER_HEIGHT + z * TILE_SIZE
+        return (grid_x, grid_y)
     
     def draw_grid(self):
-        """Draw the 3x3x3 cube grid."""
-        # Draw grid lines and cube cells
-        for x in range(CUBE_SIZE):
-            for y in range(CUBE_SIZE):
+        """Draw the 3x3x3 cube as three stacked 3x3 layers."""
+        for y in range(CUBE_SIZE):
+            # Draw layer label
+            label = f"Layer {y}"
+            label_text = self.font_small.render(label, True, COLOR_TITLE)
+            self.surface.blit(label_text, (GRID_START_X, GRID_START_Y + y * LAYER_HEIGHT - 20))
+            
+            # Draw 3x3 grid for this layer
+            for x in range(CUBE_SIZE):
                 for z in range(CUBE_SIZE):
-                    screen_x, screen_y = self.cube_to_isometric(x, y, z)
-                    
-                    # Draw cube cell as a square
-                    rect = pygame.Rect(
-                        screen_x - TILE_SIZE // 2,
-                        screen_y - TILE_SIZE // 4,
-                        TILE_SIZE,
-                        TILE_SIZE // 2
-                    )
-                    pygame.draw.rect(self.surface, COLOR_GRID, rect, 1)
+                    screen_x, screen_y = self.cube_to_screen(x, y, z)
+                    rect = pygame.Rect(screen_x, screen_y, TILE_SIZE, TILE_SIZE)
+                    pygame.draw.rect(self.surface, COLOR_GRID, rect, 2)
     
     def draw_fly(self, fly_pos):
         """Draw the fly at its current position."""
         x, y, z = fly_pos
-        screen_x, screen_y = self.cube_to_isometric(x, y, z)
-        pygame.draw.circle(self.surface, COLOR_FLY, (screen_x, screen_y), 8)
+        screen_x, screen_y = self.cube_to_screen(x, y, z)
+        rect = pygame.Rect(screen_x, screen_y, TILE_SIZE, TILE_SIZE)
+        pygame.draw.rect(self.surface, COLOR_FLY, rect)
+        pygame.draw.rect(self.surface, COLOR_FLY, rect, 2)
     
     def draw_ui(self, fly_pos):
         """Draw UI elements: prompt and controls."""
@@ -164,7 +167,7 @@ class Renderer:
         prompt_text = self.font_large.render("please move", True, COLOR_TITLE)
         self.surface.blit(prompt_text, (20, 20))
         
-        # Controls
+        # Controls at bottom
         controls = [
             "Q=Up   W=Forward   E=Back",
             "A=Left   S=Down   D=Right",
@@ -172,20 +175,13 @@ class Renderer:
         ]
         for i, control in enumerate(controls):
             text = self.font_small.render(control, True, COLOR_TEXT)
-            self.surface.blit(text, (20, WINDOW_HEIGHT - 80 + i * 20))
+            self.surface.blit(text, (20, WINDOW_HEIGHT - 70 + i * 18))
     
     def draw_help(self, fly_pos):
         """Draw help overlay with current fly position."""
-        pos_text = self.font_large.render(f"Position: ({fly_pos[0]}, {fly_pos[1]}, {fly_pos[2]})", True, COLOR_TITLE)
-        text_rect = pos_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2))
-        
-        # Semi-transparent background
-        bg_rect = text_rect.inflate(20, 20)
-        help_surface = pygame.Surface((bg_rect.width, bg_rect.height))
-        help_surface.set_alpha(200)
-        help_surface.fill((50, 50, 70))
-        self.surface.blit(help_surface, bg_rect)
-        
+        x, y, z = fly_pos
+        pos_text = self.font_large.render(f"Position: x={x} y={y} z={z}", True, COLOR_TITLE)
+        text_rect = pos_text.get_rect(center=(WINDOW_WIDTH // 2, 30))
         self.surface.blit(pos_text, text_rect)
     
     def draw_last_move(self, last_move):
